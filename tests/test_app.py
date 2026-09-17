@@ -2,7 +2,7 @@ from io import BytesIO
 
 from docx import Document
 
-from analyzer import analyze_document
+from analyzer import analyze_document, extract_docx
 from app import app
 
 
@@ -15,13 +15,38 @@ def make_docx() -> BytesIO:
     buffer = BytesIO(); document.save(buffer); buffer.seek(0); return buffer
 
 
+def make_structured_docx() -> BytesIO:
+    document = Document()
+    document.add_paragraph("基于深度学习的测试论文")
+    abstract = document.add_table(rows=1, cols=1)
+    abstract.cell(0, 0).text = (
+        "摘要：随着信息技术的发展，高维数据大规模涌现。针对上述挑战，本文系统研究相关方法。"
+        "本文首先构建模型，其次开展对比实验。实验结果表明，模型性能显著提升。本研究为相关任务提供了可行路线。"
+    )
+    document.add_paragraph("1. 绪论")
+    document.add_paragraph("1.2 国内外研究现状")
+    document.add_paragraph("相关方法主要分为线性与非线性两大类。经典方法如PCA。为解决非线性问题，近年来深度模型逐渐成为研究热点。")
+    document.add_paragraph("4. 实验设计与结果分析")
+    document.add_paragraph("4.2 实验结果分析")
+    document.add_paragraph("实验数据表明，本文模型具有最高准确率和最小重构损失。")
+    table = document.add_table(rows=3, cols=3)
+    for j, v in enumerate(["方法", "准确率", "MSE"]): table.cell(0, j).text = v
+    for j, v in enumerate(["PCA", "88.4", "3.42"]): table.cell(1, j).text = v
+    for j, v in enumerate(["本文模型", "96.8", "1.15"]): table.cell(2, j).text = v
+    document.add_paragraph("5.2 结论")
+    document.add_paragraph("本文针对相关问题系统构建并验证模型。通过多目标约束实现有效压缩。实验结果证实模型具有优越性。后续工作将进一步探索相关应用。")
+    document.add_paragraph("参考文献")
+    document.add_paragraph("[1] Example reference (2020).")
+    buffer = BytesIO(); document.save(buffer); buffer.seek(0); return buffer
+
+
 def test_healthz():
     response = app.test_client().get("/healthz")
     assert response.status_code == 200
     assert response.json == {"status": "ok"}
 
 
-def test_docx_analysis_v02():
+def test_docx_analysis_v03():
     response = app.test_client().post("/api/analyze", data={"file": (make_docx(), "sample.docx"), "medium_threshold": "40", "high_threshold": "65", "profile": "public_management"}, content_type="multipart/form-data")
     assert response.status_code == 200
     payload = response.json
@@ -29,9 +54,22 @@ def test_docx_analysis_v02():
     assert payload["summary"]["total_chars"] > 0
     assert "document_signals" in payload["summary"]
     assert payload["summary"]["document_signals"]["cross_duplicate_count"] >= 1
-    assert len(payload["results"]) == 3
-    assert "lexical_diversity" in payload["results"][0]
-    assert "style_shift" in payload["results"][0]
+    assert "template_score" in payload["results"][0]
+
+
+def test_docx_reads_table_abstract_and_stops_references():
+    raw = make_structured_docx().getvalue()
+    rows = extract_docx(raw)
+    texts = [row[1] for row in rows]
+    assert any(text.startswith("摘要：") for text in texts)
+    assert any(row[2] == "table_data" for row in rows)
+    assert not any("Example reference" in text for text in texts)
+    results, summary = analyze_document(rows, profile="general")
+    assert summary["document_signals"]["table_data_blocks"] == 1
+    assert summary["document_signals"]["citation_gap_score"] == 100
+    assert summary["document_signals"]["evidence_gap_score"] > 0
+    assert summary["estimated_ratio"] > 50
+    assert any(r.section_type == "abstract" for r in results)
 
 
 def test_document_style_signals():
