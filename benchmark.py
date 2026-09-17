@@ -43,7 +43,17 @@ def metrics(points: List[Tuple[int, float]], threshold: float) -> dict:
     precision = tp / (tp + fp) if tp + fp else 0
     recall = tp / (tp + fn) if tp + fn else 0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0
-    return {"threshold": threshold, "precision": precision, "recall": recall, "f1": f1, "false_positive_rate": fp / (fp + tn) if fp + tn else 0, "tp": tp, "fp": fp, "tn": tn, "fn": fn}
+    return {
+        "threshold": threshold,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "false_positive_rate": fp / (fp + tn) if fp + tn else 0,
+        "tp": tp,
+        "fp": fp,
+        "tn": tn,
+        "fn": fn,
+    }
 
 
 def main() -> None:
@@ -51,16 +61,32 @@ def main() -> None:
     parser.add_argument("dataset", type=Path, help="CSV: label,text；label=1 表示 AI/高AI参与，0 表示人工")
     parser.add_argument("--profile", default="general", choices=["general", "public_management", "strict"])
     args = parser.parse_args()
+
     samples = load_csv(args.dataset)
     scored = []
+    raw_scores = []
     for label, text in samples:
-        results, _ = analyze_document([("样本", text)], profile=args.profile)
-        scored.append((label, results[0].score if results else 0.0))
-    candidates = [x / 2 for x in range(40, 181)]
+        _, summary = analyze_document([("样本", text)], profile=args.profile)
+        final_ratio = float(summary.get("estimated_ratio", 0.0))
+        raw_score = float(summary.get("weighted_score", 0.0))
+        scored.append((label, final_ratio))
+        raw_scores.append((label, raw_score))
+
+    candidates = [x / 2 for x in range(0, 201)]
     scored_metrics = [metrics(scored, t) for t in candidates]
     best = max(scored_metrics, key=lambda x: x["f1"]) if scored_metrics else {}
-    report = {"samples": len(scored), "positive": sum(y for y, _ in scored), "negative": sum(1-y for y, _ in scored), "auc": round(auc(scored), 4), "best_f1": {k: round(v, 4) if isinstance(v, float) else v for k, v in best.items()}}
+
+    report = {
+        "samples": len(scored),
+        "positive": sum(y for y, _ in scored),
+        "negative": sum(1-y for y, _ in scored),
+        "auc_estimated_ratio": round(auc(scored), 4),
+        "auc_raw_score": round(auc(raw_scores), 4),
+        "best_f1": {k: round(v, 4) if isinstance(v, float) else v for k, v in best.items()},
+        "score_field": "summary.estimated_ratio",
+    }
     print(json.dumps(report, ensure_ascii=False, indent=2))
+
 
 if __name__ == "__main__":
     main()
