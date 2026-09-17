@@ -1,0 +1,5 @@
+# Optional local language-model layer for perplexity / predictability scoring.
+# Recommended: Python 3.12 or 3.13 because PyTorch wheel availability may lag on newer Python releases.
+-r requirements.txt
+transformers>=4.48,<6
+torch>=2.5
