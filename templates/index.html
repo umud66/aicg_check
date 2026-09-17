@@ -1,70 +1,21 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AICG Check · 论文 AIGC 风险分析</title>
-  <meta name="description" content="免费、可解释的论文 AIGC 文本风险分析工具，支持 DOCX 和文字型 PDF。">
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
-</head>
-<body>
-<main class="shell">
-  <header class="hero">
-    <div><p class="eyebrow">AICG CHECK</p><h1>论文 AIGC 风险分析</h1><p class="lead">上传 DOCX / PDF，按段落分析模板化、泛化表达、句式规律、重复度与事实线索，给出可解释的风险估算。</p></div>
-    <div class="status-badge">服务器处理 · 不调用收费 AIGC API</div>
-  </header>
-
-  <section class="notice"><strong>边界说明：</strong>这是启发式风险扫描器，不是对“是否由 AI 生成”的鉴定，也不复刻知网、万方等商业系统。建议优先上传 DOCX；扫描版 PDF 需要先 OCR。</section>
-
-  <section class="panel">
-    <form id="uploadForm">
-      <label class="dropzone" id="dropzone" for="fileInput">
-        <input id="fileInput" type="file" accept=".docx,.pdf" hidden>
-        <span class="drop-title">拖入论文，或点击选择文件</span>
-        <span class="drop-sub">DOCX / PDF · 最大 {{ max_upload_mb }} MB · DOCX 解析效果更稳定</span>
-        <span class="file-name" id="fileName">尚未选择文件</span>
-      </label>
-      <div class="settings">
-        <label>中风险阈值 <b id="mediumValue">40</b><input id="mediumThreshold" type="range" min="25" max="60" value="40"></label>
-        <label>高风险阈值 <b id="highValue">65</b><input id="highThreshold" type="range" min="50" max="85" value="65"></label>
-        <button id="analyzeBtn" class="primary" type="submit">开始分析</button>
-      </div>
-    </form>
-    <p id="errorBox" class="error" hidden></p>
-  </section>
-
-  <section id="loading" class="panel loading" hidden><span class="spinner"></span><div><strong>正在解析并分析论文</strong><p>大文件或 PDF 可能需要更长时间。</p></div></section>
-
-  <section id="results" hidden>
-    <div class="result-head">
-      <div><p class="eyebrow">ANALYSIS RESULT</p><h2 id="resultFilename"></h2></div>
-      <div class="actions"><button id="downloadCsv" class="ghost" type="button">导出 CSV</button><button id="downloadHtml" class="ghost" type="button">导出 HTML 报告</button></div>
-    </div>
-    <div class="cards">
-      <article class="metric"><span>有效正文字符</span><strong id="totalChars">-</strong></article>
-      <article class="metric"><span>综合风险指数</span><strong id="weightedScore">-</strong></article>
-      <article class="metric"><span>AIGC 风险估算占比</span><strong id="estimatedRatio">-</strong></article>
-      <article class="metric"><span>高风险文本占比</span><strong id="highRatio">-</strong></article>
-    </div>
-    <section class="panel"><div class="section-title"><h3>章节风险</h3><span>按平均风险分排序</span></div><div class="table-wrap"><table><thead><tr><th>章节</th><th>字符数</th><th>平均风险分</th><th>高风险占比</th><th>中高风险占比</th></tr></thead><tbody id="chapterRows"></tbody></table></div></section>
-    <section class="panel"><div class="section-title"><h3>段落明细</h3><div class="filters"><select id="levelFilter"><option value="all">全部等级</option><option value="高">高风险</option><option value="中">中风险</option><option value="低">低风险</option></select><input id="searchBox" type="search" placeholder="搜索章节或原文"></div></div><div id="paragraphList" class="paragraph-list"></div></section>
-    <section class="panel explainer"><h3>占比如何计算</h3><p>每个段落得到 0–100 风险分。30 分以下视为背景噪声；30–100 分线性映射为 0–100% 风险权重，再按段落字符数加权，得到“AIGC 风险估算占比”。“高风险文本占比”则是达到高风险阈值的段落字符数占全文有效正文字符数的比例。</p></section>
-  </section>
-</main>
-<script>
-let analysis=null; const $=id=>document.getElementById(id); const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-function setFile(file){if(!file)return;const dt=new DataTransfer();dt.items.add(file);$('fileInput').files=dt.files;$('fileName').textContent=`${file.name} · ${(file.size/1024/1024).toFixed(2)} MB`;}
-$('fileInput').addEventListener('change',e=>{const f=e.target.files[0];if(f)$('fileName').textContent=`${f.name} · ${(f.size/1024/1024).toFixed(2)} MB`;});
-['dragenter','dragover'].forEach(evt=>$('dropzone').addEventListener(evt,e=>{e.preventDefault();$('dropzone').classList.add('dragging');}));['dragleave','drop'].forEach(evt=>$('dropzone').addEventListener(evt,e=>{e.preventDefault();$('dropzone').classList.remove('dragging');}));$('dropzone').addEventListener('drop',e=>setFile(e.dataTransfer.files[0]));
-$('mediumThreshold').addEventListener('input',e=>$('mediumValue').textContent=e.target.value);$('highThreshold').addEventListener('input',e=>$('highValue').textContent=e.target.value);
-$('uploadForm').addEventListener('submit',async e=>{e.preventDefault();$('errorBox').hidden=true;const file=$('fileInput').files[0];if(!file)return showError('请先选择 DOCX 或 PDF 文件。');if(+$('highThreshold').value<=+$('mediumThreshold').value)return showError('高风险阈值必须高于中风险阈值。');const data=new FormData();data.append('file',file);data.append('medium_threshold',$('mediumThreshold').value);data.append('high_threshold',$('highThreshold').value);$('loading').hidden=false;$('results').hidden=true;$('analyzeBtn').disabled=true;try{const res=await fetch('/api/analyze',{method:'POST',body:data});const payload=await res.json();if(!res.ok)throw new Error(payload.error||'分析失败');analysis=payload;renderAnalysis();}catch(err){showError(err.message||String(err));}finally{$('loading').hidden=true;$('analyzeBtn').disabled=false;}});
-function showError(msg){$('errorBox').textContent=msg;$('errorBox').hidden=false;}
-function renderAnalysis(){const s=analysis.summary;$('resultFilename').textContent=analysis.filename;$('totalChars').textContent=s.total_chars.toLocaleString();$('weightedScore').textContent=`${s.weighted_score} / 100`;$('estimatedRatio').textContent=`${s.estimated_ratio}%`;$('highRatio').textContent=`${s.high_ratio}%`;$('chapterRows').innerHTML=s.chapters.map(c=>`<tr><td>${esc(c.chapter)}</td><td>${c.chars.toLocaleString()}</td><td>${c.avg_score}</td><td>${c.high_ratio}%</td><td>${c.medium_high_ratio}%</td></tr>`).join('');renderParagraphs();$('results').hidden=false;$('results').scrollIntoView({behavior:'smooth'});}
-function renderParagraphs(){if(!analysis)return;const level=$('levelFilter').value,q=$('searchBox').value.trim().toLowerCase();const rows=[...analysis.results].sort((a,b)=>b.score-a.score||b.chars-a.chars).filter(r=>(level==='all'||r.level===level)&&(!q||r.chapter.toLowerCase().includes(q)||r.text.toLowerCase().includes(q)));$('paragraphList').innerHTML=rows.map(r=>`<article class="paragraph"><div class="paragraph-meta"><span class="risk ${r.level}">${r.level} · ${r.score}/100</span><span>#${r.index}</span><span>${esc(r.chapter)}</span><span>${r.chars} 字符</span></div><p>${esc(r.text)}</p><div class="reason"><b>触发特征：</b>${esc(r.reasons)}</div><div class="micro">连接词密度 ${r.transition_density} · 泛化动词密度 ${r.generic_density} · 引用 ${r.citation_count} · 数字密度 ${r.digit_density}% · 句长 CV ${r.sentence_cv} · 重复度 ${r.repetition_score}</div></article>`).join('')||'<p class="empty">没有符合当前筛选条件的段落。</p>';}
-$('levelFilter').addEventListener('change',renderParagraphs);$('searchBox').addEventListener('input',renderParagraphs);
-function csvEscape(v){return '"'+String(v??'').replace(/"/g,'""')+'"';}
-$('downloadCsv').addEventListener('click',()=>{const headers=['段落','章节','原文','字符数','风险分','等级','命中特征','连接词密度','泛化动词密度','引用数','数字密度(%)','句长变异系数','重复度'];const lines=[headers.map(csvEscape).join(',')];analysis.results.forEach(r=>lines.push([r.index,r.chapter,r.text,r.chars,r.score,r.level,r.reasons,r.transition_density,r.generic_density,r.citation_count,r.digit_density,r.sentence_cv,r.repetition_score].map(csvEscape).join(',')));downloadBlob('\ufeff'+lines.join('\r\n'),'text/csv;charset=utf-8','AIGC风险明细.csv');});
-$('downloadHtml').addEventListener('click',()=>{const s=analysis.summary;const ch=s.chapters.map(c=>`<tr><td>${esc(c.chapter)}</td><td>${c.chars}</td><td>${c.avg_score}</td><td>${c.high_ratio}%</td><td>${c.medium_high_ratio}%</td></tr>`).join('');const rows=[...analysis.results].sort((a,b)=>b.score-a.score).map(r=>`<tr><td>${r.index}</td><td>${esc(r.chapter)}</td><td>${r.score}</td><td>${r.level}</td><td>${esc(r.reasons)}</td><td>${esc(r.text)}</td></tr>`).join('');const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>AIGC论文风险报告</title><style>body{font-family:Arial,'Microsoft YaHei',sans-serif;margin:32px;color:#222;line-height:1.6}.note{padding:12px;background:#fff8e6;border-left:4px solid #c89400}table{border-collapse:collapse;width:100%;margin:18px 0}th,td{border:1px solid #ddd;padding:7px;vertical-align:top}th{background:#f5f5f5}</style><body><h1>AIGC 论文风险分析报告</h1><p>文件：${esc(analysis.filename)}</p><div class="note">本报告是启发式风险分析，不等同于知网、万方或学校系统的官方 AIGC 检测结果。</div><p>有效正文字符：<b>${s.total_chars}</b>　综合风险指数：<b>${s.weighted_score}/100</b>　AIGC风险估算占比：<b>${s.estimated_ratio}%</b>　高风险文本占比：<b>${s.high_ratio}%</b></p><h2>章节汇总</h2><table><tr><th>章节</th><th>字符数</th><th>平均风险分</th><th>高风险占比</th><th>中高风险占比</th></tr>${ch}</table><h2>段落明细</h2><table><tr><th>#</th><th>章节</th><th>分数</th><th>等级</th><th>命中特征</th><th>原文</th></tr>${rows}</table></body></html>`;downloadBlob(html,'text/html;charset=utf-8','AIGC风险报告.html');});
-function downloadBlob(content,type,name){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-</script>
-</body></html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AICG Check v0.2</title><link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}"></head>
+<body><main class="shell">
+<header class="hero"><div><p class="eyebrow">AICG CHECK · v0.2</p><h1>论文 AIGC 风险分析</h1><p class="lead">段落规则 + 全文风格基线 + 文风突变 + 跨段近似重复 + 章节画像。</p></div><div class="status-badge">服务器处理 · 不调用收费 AIGC API</div></header>
+<section class="notice"><strong>说明：</strong>这是可解释风险估算，不是“AI 写作鉴定”。DOCX 解析最稳定；扫描 PDF 请先 OCR。</section>
+<section class="panel"><form id="uploadForm"><label class="dropzone" id="dropzone" for="fileInput"><input id="fileInput" type="file" accept=".docx,.pdf" hidden><span class="drop-title">拖入论文，或点击选择文件</span><span class="drop-sub">DOCX / PDF · 最大 {{ max_upload_mb }} MB</span><span class="file-name" id="fileName">尚未选择文件</span></label><div class="settings"><label>分析配置<select id="profile"><option value="general">通用硕士论文</option><option value="public_management" selected>公共管理 / 政策类论文</option><option value="strict">严格模式</option></select></label><label>中风险阈值 <b id="mediumValue">40</b><input id="mediumThreshold" type="range" min="25" max="60" value="40"></label><label>高风险阈值 <b id="highValue">65</b><input id="highThreshold" type="range" min="50" max="85" value="65"></label><button id="analyzeBtn" class="primary">开始分析</button></div></form><p id="errorBox" class="error" hidden></p></section>
+<section id="loading" class="panel loading" hidden><span class="spinner"></span><div><strong>正在进行全文级分析</strong><p>将同时计算段落特征、跨段相似、章节画像和文风突变。</p></div></section>
+<section id="results" hidden><div class="result-head"><div><p class="eyebrow">ANALYSIS RESULT</p><h2 id="resultFilename"></h2><p id="profileName"></p></div><div class="actions"><button id="downloadCsv" class="ghost">导出 CSV</button></div></div>
+<div class="cards"><article class="metric"><span>有效正文字符</span><strong id="totalChars">-</strong></article><article class="metric"><span>综合风险指数</span><strong id="weightedScore">-</strong></article><article class="metric"><span>AIGC 风险估算占比</span><strong id="estimatedRatio">-</strong></article><article class="metric"><span>高风险文本占比</span><strong id="highRatio">-</strong></article></div>
+<section class="panel"><div class="section-title"><h3>全文级信号</h3><span>用于辅助解释，不单独作为结论</span></div><div id="signals"></div></section>
+<section class="panel"><div class="section-title"><h3>章节画像</h3></div><div class="table-wrap"><table><thead><tr><th>章节</th><th>字符数</th><th>平均风险</th><th>高风险占比</th><th>词汇多样性</th><th>平均句长</th></tr></thead><tbody id="chapterRows"></tbody></table></div></section>
+<section class="panel"><div class="section-title"><h3>段落明细</h3><div class="filters"><select id="levelFilter"><option value="all">全部等级</option><option value="高">高风险</option><option value="中">中风险</option><option value="低">低风险</option></select><input id="searchBox" placeholder="搜索章节或原文"></div></div><div id="paragraphList" class="paragraph-list"></div></section></section>
+</main><script>
+let analysis=null;const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+function setFile(f){if(!f)return;const dt=new DataTransfer();dt.items.add(f);$('fileInput').files=dt.files;$('fileName').textContent=`${f.name} · ${(f.size/1048576).toFixed(2)} MB`}$('fileInput').onchange=e=>setFile(e.target.files[0]);['dragenter','dragover'].forEach(x=>$('dropzone').addEventListener(x,e=>{e.preventDefault();$('dropzone').classList.add('dragging')}));['dragleave','drop'].forEach(x=>$('dropzone').addEventListener(x,e=>{e.preventDefault();$('dropzone').classList.remove('dragging')}));$('dropzone').ondrop=e=>setFile(e.dataTransfer.files[0]);$('mediumThreshold').oninput=e=>$('mediumValue').textContent=e.target.value;$('highThreshold').oninput=e=>$('highValue').textContent=e.target.value;
+$('uploadForm').onsubmit=async e=>{e.preventDefault();$('errorBox').hidden=true;const f=$('fileInput').files[0];if(!f)return err('请先选择文件');const d=new FormData();d.append('file',f);d.append('profile',$('profile').value);d.append('medium_threshold',$('mediumThreshold').value);d.append('high_threshold',$('highThreshold').value);$('loading').hidden=false;$('results').hidden=true;try{const r=await fetch('/api/analyze',{method:'POST',body:d});const p=await r.json();if(!r.ok)throw new Error(p.error||'分析失败');analysis=p;render()}catch(x){err(x.message)}finally{$('loading').hidden=true}};
+function err(m){$('errorBox').textContent=m;$('errorBox').hidden=false}
+function render(){const s=analysis.summary,ds=s.document_signals||{};$('resultFilename').textContent=analysis.filename;$('profileName').textContent=`分析配置：${analysis.profile_name}`;$('totalChars').textContent=s.total_chars.toLocaleString();$('weightedScore').textContent=s.weighted_score+' / 100';$('estimatedRatio').textContent=s.estimated_ratio+'%';$('highRatio').textContent=s.high_ratio+'%';$('signals').innerHTML=`<div class="micro">跨段高相似：<b>${ds.cross_duplicate_count||0}</b>　文风突变：<b>${ds.style_shift_count||0}</b>　段落长度CV：<b>${ds.paragraph_length_cv??'-'}</b>　句长均值CV：<b>${ds.sentence_mean_cv??'-'}</b>　平均词汇多样性：<b>${ds.avg_lexical_diversity??'-'}</b></div>${ds.regularity_warning?'<div class="reason">全文段落长度异常规律</div>':''}${ds.sentence_regularity_warning?'<div class="reason">全文平均句长异常规律</div>':''}${(ds.repeated_sentence_starts||[]).length?`<div class="reason">重复句首：${esc(ds.repeated_sentence_starts.join('、'))}</div>`:''}`;$('chapterRows').innerHTML=s.chapters.map(c=>`<tr><td>${esc(c.chapter)}</td><td>${c.chars}</td><td>${c.avg_score}</td><td>${c.high_ratio}%</td><td>${c.lexical_diversity}</td><td>${c.sentence_mean}</td></tr>`).join('');renderParas();$('results').hidden=false}
+function renderParas(){const lvl=$('levelFilter').value,q=$('searchBox').value.toLowerCase();const rows=[...analysis.results].sort((a,b)=>b.score-a.score).filter(r=>(lvl==='all'||r.level===lvl)&&(!q||r.chapter.toLowerCase().includes(q)||r.text.toLowerCase().includes(q)));$('paragraphList').innerHTML=rows.map(r=>`<article class="paragraph"><div class="paragraph-meta"><span class="risk ${r.level}">${r.level} · ${r.score}/100</span><span>#${r.index}</span><span>${esc(r.chapter)}</span><span>${r.chars} 字符</span></div><p>${esc(r.text)}</p><div class="reason"><b>触发特征：</b>${esc(r.reasons)}</div><div class="micro">跨段相似 ${r.cross_similarity} ${r.cross_match_index?'↔ #'+r.cross_match_index:''} · 文风突变 ${r.style_shift} · 词汇多样性 ${r.lexical_diversity} · 平均句长 ${r.sentence_mean} · 功能词密度 ${r.function_density}</div></article>`).join('')||'<p class="empty">无匹配段落</p>'}$('levelFilter').onchange=renderParas;$('searchBox').oninput=renderParas;
+function ce(v){return '"'+String(v??'').replace(/"/g,'""')+'"'}$('downloadCsv').onclick=()=>{const h=['段落','章节','原文','字符数','风险分','等级','命中特征','跨段相似','匹配段落','文风突变','词汇多样性','平均句长','功能词密度'];const ls=[h.map(ce).join(',')];analysis.results.forEach(r=>ls.push([r.index,r.chapter,r.text,r.chars,r.score,r.level,r.reasons,r.cross_similarity,r.cross_match_index,r.style_shift,r.lexical_diversity,r.sentence_mean,r.function_density].map(ce).join(',')));const b=new Blob(['\ufeff'+ls.join('\r\n')],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='AIGC风险明细-v0.2.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
+</script></body></html>
