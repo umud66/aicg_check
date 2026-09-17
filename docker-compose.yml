@@ -1,0 +1,10 @@
+services:
+  aicg-check:
+    build: .
+    container_name: aicg-check
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+      MAX_UPLOAD_MB: "50"
