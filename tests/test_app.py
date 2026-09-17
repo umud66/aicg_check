@@ -25,7 +25,11 @@ def make_structured_docx() -> BytesIO:
     )
     document.add_paragraph("1. 绪论")
     document.add_paragraph("1.2 国内外研究现状")
-    document.add_paragraph("相关方法主要分为线性与非线性两大类。经典方法如PCA。为解决非线性问题，近年来深度模型逐渐成为研究热点。")
+    document.add_paragraph(
+        "相关方法主要分为线性与非线性两大类。经典方法如PCA。为解决非线性问题，近年来深度模型逐渐成为研究热点。"
+        "现有研究通常从特征映射、流形保持和重构性能等角度展开讨论，不同方法在计算复杂度、泛化能力和新样本映射方面各有差异。"
+        "随着数据规模持续增长，研究者也逐渐关注深层网络在复杂非线性结构提取方面的应用。"
+    )
     document.add_paragraph("4. 实验设计与结果分析")
     document.add_paragraph("4.2 实验结果分析")
     document.add_paragraph("实验数据表明，本文模型具有最高准确率和最小重构损失。")
