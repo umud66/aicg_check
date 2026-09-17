@@ -1,0 +1,67 @@
+name: Build Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test application
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+          pytest -q
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Package release archives
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG="aicg-check-v${VERSION}"
+          mkdir -p "dist/${PKG}"
+          rsync -a ./ "dist/${PKG}/" \
+            --exclude '.git' \
+            --exclude 'dist' \
+            --exclude '__pycache__' \
+            --exclude '*.pyc'
+          (cd dist && zip -qr "${PKG}.zip" "${PKG}")
+          tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
+
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refreshing assets."
+            gh release upload "$TAG" "dist/aicg-check-v${VERSION}.zip" "dist/aicg-check-v${VERSION}.tar.gz" --clobber
+          else
+            gh release create "$TAG" \
+              "dist/aicg-check-v${VERSION}.zip" \
+              "dist/aicg-check-v${VERSION}.tar.gz" \
+              --target "$GITHUB_SHA" \
+              --title "AICG Check v${VERSION}" \
+              --notes-file RELEASE_NOTES.md
+          fi
