@@ -50,7 +50,7 @@ def test_healthz():
     assert response.json == {"status": "ok"}
 
 
-def test_docx_analysis_v03():
+def test_docx_analysis_v04():
     response = app.test_client().post("/api/analyze", data={"file": (make_docx(), "sample.docx"), "medium_threshold": "40", "high_threshold": "65", "profile": "public_management"}, content_type="multipart/form-data")
     assert response.status_code == 200
     payload = response.json
@@ -58,7 +58,9 @@ def test_docx_analysis_v03():
     assert payload["summary"]["total_chars"] > 0
     assert "document_signals" in payload["summary"]
     assert payload["summary"]["document_signals"]["cross_duplicate_count"] >= 1
+    assert payload["summary"]["document_signals"]["calibration_center"] == 34.0
     assert "template_score" in payload["results"][0]
+    assert "evidence_score" in payload["results"][0]
 
 
 def test_docx_reads_table_abstract_and_stops_references():
@@ -82,6 +84,17 @@ def test_document_style_signals():
     assert len(results) == 3
     assert summary["document_signals"]["cross_duplicate_count"] >= 1
     assert results[2].cross_match_index == 1
+
+
+def test_section_classification_prefers_heading_over_body_words():
+    rows = [
+        ("3.3 失败案例与局限性深挖", "从表 1 能看出来，模型整体表现不错，但在 Fashion-MNIST 上出现了衬衫与外套混淆。我们在单卡 RTX 4090 上跑训练，Batch Size 设到 256 时第 30 个 Epoch 出现梯度震荡。"),
+        ("4. 总结与改进思考", "这次实测跑下来，模型效果符合预期，但调参成本较高。总结下来，数据归一化和隐层维度需要特别注意，后续计划再比较自监督方法。"),
+    ]
+    results, summary = analyze_document(rows, profile="general")
+    assert results[0].section_type == "experiment"
+    assert results[1].section_type == "conclusion"
+    assert summary["document_signals"]["calibration_status"] == "provisional-heuristic"
 
 
 def test_rejects_bad_extension():
